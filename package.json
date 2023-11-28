@@ -1,0 +1,36 @@
+{
+  "name": "bangumini-tauri",
+  "private": true,
+  "version": "0.0.1",
+  "author": "Vick Scarlet<vick@syaro.io>",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@fontsource/roboto": "^5.0.8",
+    "@mui/icons-material": "^5.14.18",
+    "@mui/material": "^5.14.18",
+    "@mui/styled-engine-sc": "6.0.0-alpha.6",
+    "@tauri-apps/api": "^1.5.1",
+    "eventemitter3": "^5.0.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.0",
+    "styled-components": "^6.1.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^1.5.6",
+    "@types/node": "^20.9.4",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.0.3",
+    "sass": "^1.69.5",
+    "typescript": "^5.0.2",
+    "vite": "^5.0.2"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "devPath": "http://localhost:1919",
+    "distDir": "../dist"
+  },
+  "package": {
+    "productName": "bangumini-tauri",
+    "version": "0.0.1"
+  },
+  "tauri": {
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "all": false,
+        "open": true
+      }
+    },
+    "bundle": {
+      "active": true,
+      "targets": "all",
+      "identifier": "dev.b38.bangumini",
+      "icon": [
+        "icons/b38.png"
+      ]
+    },
+    "security": {
+      "csp": null
+    },
+    "windows": [
+      {
+        "fullscreen": false,
+        "resizable": true,
+        "title": "bangumini-tauri",
+        "width": 480,
+        "height": 960
+      }
+    ]
+  }
+}
