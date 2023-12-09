@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod index;
+pub mod subject;
 
 #[macro_export]
 macro_rules! bangumi {
@@ -24,7 +25,7 @@ macro_rules! bangumi {
             let mut url = $crate::bangumi!($first);
             $(
                 url.push('/');
-                url.push_str($tail);
+                url.push_str(&$tail);
             )*
             url
         }

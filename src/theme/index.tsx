@@ -4,31 +4,19 @@ import '@fontsource/roboto/500.css';
 import '@fontsource/roboto/700.css';
 import './index.scss'
 
+import { useMemo } from 'react';
+import { useMediaQuery } from '@mui/material';
 import { createTheme, ThemeProvider } from '@mui/material/styles';
 import { zhCN } from '@mui/material/locale';
+import themes from './theme'
 
-const theme = createTheme({
-    palette: {
-        primary: {
-            main: '#f09199',
-            contrastText: '#fff',
-        },
-        secondary: {
-            main: '#7F00FF',
-            contrastText: '#fff',
-        },
-        pagecenter: { main: '#eef2f6' },
-    },
-    components: {
-        MuiCssBaseline: {
-            styleOverrides: {
-                body: {
-                    margin: 0,
-                },
-            },
-        },
-    },
-}, zhCN);
+export default (props:{children?: React.ReactNode})=>{
+    const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
 
-
-export default (props:{children?: React.ReactNode})=><ThemeProvider theme={theme}>{props.children}</ThemeProvider>
+    const theme = useMemo(
+      () =>
+        createTheme(prefersDarkMode ? themes.dark : themes.light, zhCN),
+      [prefersDarkMode],
+    );
+    return <ThemeProvider theme={theme}>{props.children}</ThemeProvider>
+}

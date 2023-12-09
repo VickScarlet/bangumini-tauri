@@ -7,7 +7,36 @@ use net::HttpClient;
 use std::sync::Arc;
 use tauri::{api::path, Env, State, WindowEvent};
 
-static UA: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+use serde::{ser::Serializer, Serialize};
+
+// create the error type that represents all errors possible in our program
+#[derive(Debug, thiserror::Error)]
+pub enum CommandError {
+    #[error(transparent)]
+    Reqwest(#[from] reqwest::Error),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Json(#[from] serde_json::Error),
+    #[error(transparent)]
+    Regex(#[from] regex::Error),
+    #[error(transparent)]
+    Anyhow(#[from] anyhow::Error),
+    #[error(transparent)]
+    CookieStore(#[from] cookie_store::Error),
+}
+
+// we must manually implement serde::Serialize
+impl Serialize for CommandError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.to_string().as_ref())
+    }
+}
+
+pub type Result<T, E = CommandError> = anyhow::Result<T, E>;
 
 pub struct _S {
     client: HttpClient,
@@ -23,14 +52,11 @@ impl _S {
             Some(path::BaseDirectory::AppConfig),
         )
         .expect("failed to resolve cookies path");
-
-        let client = HttpClient::new(path, UA);
+        let version = ctx.package_info().version.to_string();
+        let ua = format!("Bangumini/{} (Vick Scarlet<vick@syaro.io> https://github.com/VickScarlet/bangumini-tauri)", version);
+        println!("{}", ua);
+        let client = HttpClient::new(path, &ua, "");
         Self { client }
-    }
-
-    pub fn save(&self) -> Result<(), String> {
-        self.client.save().map_err(|e| e.to_string())?;
-        Ok(())
     }
 }
 
@@ -60,11 +86,12 @@ async fn main() {
             bgm::auth::get_captcha,
             bgm::auth::signup,
             bgm::auth::logout,
-            bgm::index::index
+            bgm::index::index,
+            bgm::subject::subject_ep_action
         ])
         .on_window_event(move |event| match event.event() {
             WindowEvent::Destroyed => {
-                state.save().unwrap();
+                state.client.save().unwrap();
             }
             _ => {}
         })

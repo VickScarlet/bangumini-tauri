@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { getFormhash, getCaptcha, signup } from '@/api/auth'
 import { getImageUriFromArray } from '@/utils'
 import { FormGroup, FormControl, OutlinedInput, InputAdornment, Button, InputLabel, Grid } from '@mui/material'
 import { Email, Password, VerifiedUser } from '@mui/icons-material';
-import Image from '@/components/Image'
+import { ClickToRefresh, Image } from '@/components'
 
 export default ()=>{
+    const [auto, setAuto] = useState(false)
+    const [loading, setLoading] = useState(false)
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
     const [captcha, setCaptcha] = useState("")
@@ -18,13 +20,28 @@ export default ()=>{
         console.debug(ret);
     }
 
-    useEffect(()=>{
-        getFormhash().then(async (formhash) => {
+    const newCaptcha = async ()=>{
+        if(loading) return;
+        setLoading(true)
+        setAuto(true)
+        if(!formhash) {
+            const formhash = await getFormhash();
             setFormhash(formhash)
-            const captcha = await getCaptcha();
-            setCaptchaSrc(getImageUriFromArray(captcha))
-        })
-    },[]);
+        }
+        const captcha = await getCaptcha();
+        setCaptchaSrc(getImageUriFromArray(captcha))
+        setLoading(false)
+    }
+
+    const change = (type: string)=>async (e:React.ChangeEvent<HTMLInputElement>)=>{
+        switch(type){
+            case 'email': setEmail(e.target.value); break;
+            case 'password': setPassword(e.target.value); break;
+            case 'captcha': setCaptcha(e.target.value); break;
+        }
+        if(email && password && !auto && !formhash) await newCaptcha();
+
+    }
 
     return <form>
         <FormGroup sx={{width: 350}}>
@@ -34,7 +51,7 @@ export default ()=>{
                     type='email' name='email' autoComplete='email'
                     id='signin-email-input' label='Email' placeholder='Email'
                     startAdornment={<InputAdornment position='start'><Email /></InputAdornment>}
-                    value={email} onChange={(e) => setEmail(e.target.value)}
+                    value={email} onChange={change('email')}
                 />
             </FormControl>
             <FormControl margin='dense'>
@@ -43,7 +60,7 @@ export default ()=>{
                     type='password' name='password' autoComplete='current-password'
                     id='signin-password-input' label='Password' placeholder='Password'
                     startAdornment={<InputAdornment position='start'><Password /></InputAdornment>}
-                    value={password} onChange={(e) => setPassword(e.target.value)}
+                    value={password} onChange={change('password')}
                 />
             </FormControl>
             <FormControl margin='dense'>
@@ -54,11 +71,18 @@ export default ()=>{
                             type='captcha' name='captcha'
                             id='signin-captcha-input' label='Captcha' placeholder='Captcha'
                             startAdornment={<InputAdornment position='start'><VerifiedUser /></InputAdornment>}
-                            value={captcha} onChange={(e) => setCaptcha(e.target.value)}
+                            value={captcha} onChange={change('captcha')}
                         />
                     </Grid>
                     <Grid item xs={5}>
-                        <Image src={captchaSrc} width='100%' height={56} style={{objectFit:'contain'}} />
+                        <Image
+                            width='100%' height={56}
+                            style={{
+                                objectFit:'cover',
+                                cursor:'pointer',
+                            }}
+                            src={captchaSrc} onClick={newCaptcha} fallbackComponent={<ClickToRefresh />}
+                        />
                     </Grid>
                 </Grid>
             </FormControl>

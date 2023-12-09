@@ -1,5 +1,6 @@
-import { useState, useEffect, ImgHTMLAttributes } from "react"
+import { useState, useEffect } from "react"
 import Fallback from '@/assets/b38.svg'
+import Loading from "./Loading"
 
 const load = (src: string) => new Promise<boolean>((resolve) => {
     const img = new Image()
@@ -8,29 +9,65 @@ const load = (src: string) => new Promise<boolean>((resolve) => {
     img.src = src
 })
 
-interface Attributes extends ImgHTMLAttributes<HTMLImageElement> {
-    fallback?: string
+interface Attributes extends React.ImgHTMLAttributes<HTMLImageElement> {
+    width?: number|string
+    height?: number|string
+    loadingComponent?: string | React.ReactNode
+    fallbackComponent?: string | React.ReactNode
 }
 
 export default (prop: Attributes)=>{
-    const [loading, setLoading] = useState(true)
-    const [last, setLast] = useState('')
+    const [loaded, setLoaded] = useState(false)
+    const [failed, setFailed] = useState(false)
+    const [opacity, setOpacity] = useState(0)
+    const [last, setLast] = useState('/')
     const {
-        src,
-        fallback,
-        ...props
+        src, loadingComponent, fallbackComponent, style,
+        width, height, ...props
     } = prop
 
     useEffect(()=>{
-        if(!src || src === last) return
-        console.debug('loading', src)
-        setLoading(true)
-        setLast(src)
-        load(src).then((loaded)=>setLoading(!loaded))
+        if(src === last) return
+        setOpacity(0)
+        setLoaded(false)
+        setOpacity(1)
+        setLast(src??'')
+        load(src??'').then((loaded)=>{
+            setLoaded(true)
+            setFailed(!loaded)
+        })
     },[src])
 
-    return <img
-        src={loading ? fallback??Fallback : prop.src}
-        {...props}
-    />
+    const img = (()=>{
+        if(!loaded) return loadingComponent ?? <Loading />
+        if(failed) return fallbackComponent ?? Fallback
+        return prop.src
+    })();
+
+    return <div style={{
+        width, height,
+        display: 'inline-block',
+        ...style
+    }}>{typeof img === 'string'
+        ? <img src={img} {...props}
+            style={{...style,
+                opacity,
+                width:'100%',
+                height:'100%',
+                display: 'inline-block',
+                position: 'relative',
+                transition: 'opacity 0.2s',
+            }}
+        />
+        : <div {...props}
+            style={{...style,
+                opacity,
+                width:'100%',
+                height:'100%',
+                display: 'inline-block',
+                position: 'relative',
+                transition: 'opacity 0.2s',
+            }}
+        >{img}</div>}
+    </div>
 }

@@ -1,26 +1,11 @@
-use crate::bangumi;
-use anyhow::Result;
-use reqwest::{multipart::Form, Client};
+use crate::{bangumi, utils, Result, S};
+use reqwest::multipart::Form;
 use serde::{Deserialize, Serialize};
 
-async fn _get_captcha(client: Client) -> Result<Vec<u8>> {
-    let params = [("t", chrono::Local::now().timestamp())];
-    let url = bangumi!("signup" / "captcha");
-    let captcha = client
-        .get(url)
-        .query(&params)
-        .send()
-        .await?
-        .bytes()
-        .await?
-        .to_vec();
-    Ok(captcha)
-}
-
-async fn _get_formhash(client: Client) -> Result<String> {
-    let login_resp = client.get(&bangumi!("login")).send().await?.text().await?;
-    let dom = scraper::Html::parse_document(&login_resp);
-    let formhash = dom
+#[tauri::command]
+pub async fn get_formhash(s: S<'_>) -> Result<String> {
+    let text = s.client.get(bangumi!("login"))?.text().await?;
+    let formhash = utils::html(&text)
         .select(&scraper::Selector::parse("input[name=formhash]").unwrap())
         .next()
         .unwrap()
@@ -29,6 +14,15 @@ async fn _get_formhash(client: Client) -> Result<String> {
         .unwrap()
         .to_string();
     Ok(formhash)
+}
+
+#[tauri::command]
+pub async fn get_captcha(s: S<'_>) -> Result<Vec<u8>> {
+    Ok(s.client
+        .get(bangumi!("signup" / "captcha"))?
+        .query(&[("t", chrono::Local::now().timestamp())])
+        .bytes()
+        .await?)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -59,7 +53,8 @@ impl SignupResult {
     }
 }
 
-async fn _signup(params: SignupParams, client: Client) -> Result<SignupResult> {
+#[tauri::command]
+pub async fn signup(s: S<'_>, params: SignupParams) -> Result<SignupResult> {
     let form = Form::new()
         .text("formhash", params.formhash)
         .text("email", params.email)
@@ -67,58 +62,31 @@ async fn _signup(params: SignupParams, client: Client) -> Result<SignupResult> {
         .text("captcha_challenge_field", params.captcha)
         .text("referer", bangumi!(/))
         .text("dreferer", bangumi!(/))
+        .text("cookietime", "31536000")
         .text("loginsubmit", "登录");
-    let url = bangumi!("FollowTheRabbit");
-    let resp = client.post(url).multipart(form).send().await?;
-    let ret = match resp.status() {
-        reqwest::StatusCode::OK => {
-            let resp = resp.text().await?;
-            if regex::Regex::new(r"呜咕，出错了")?.is_match(resp.as_str()) {
-                let message = scraper::Html::parse_document(&resp)
-                    .select(&scraper::Selector::parse("#colunmNotice .message>p.text").unwrap())
-                    .next()
-                    .unwrap()
-                    .text()
-                    .collect::<Vec<_>>()
-                    .join("");
-                SignupResult::fail(message)
-            } else {
-                SignupResult::success()
-            }
-        }
-        _ => SignupResult::fail(format!("Unexpected status code: {}", resp.status())),
-    };
-    Ok(ret)
-}
-
-// export
-#[tauri::command]
-pub async fn get_formhash(s: crate::S<'_>) -> Result<String, String> {
-    _get_formhash(s.client.get_client()?)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_captcha(s: crate::S<'_>) -> Result<Vec<u8>, String> {
-    _get_captcha(s.client.get_client()?)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn signup(s: crate::S<'_>, params: SignupParams) -> Result<SignupResult, String> {
-    let result = _signup(params, s.client.get_client()?)
-        .await
-        .map_err(|e| e.to_string())?;
-    if result.success {
-        s.client.save()?;
+    let text = s
+        .client
+        .post(bangumi!("FollowTheRabbit"))?
+        .multipart(form)
+        .text()
+        .await?;
+    if regex::Regex::new(r"呜咕，出错了")?.is_match(&text) {
+        let message = scraper::Html::parse_document(&text)
+            .select(&scraper::Selector::parse("#colunmNotice .message>p.text").unwrap())
+            .next()
+            .unwrap()
+            .text()
+            .collect::<Vec<_>>()
+            .join("");
+        Ok(SignupResult::fail(message))
+    } else {
+        s.client.save().unwrap_or(());
+        Ok(SignupResult::success())
     }
-    Ok(result)
 }
 
 #[tauri::command]
-pub async fn logout(s: crate::S<'_>) -> Result<(), String> {
+pub async fn logout(s: S<'_>) -> Result<()> {
     s.client.clear()?;
     s.client.save()?;
     Ok(())

@@ -1,13 +1,14 @@
 {
   "name": "bangumini-tauri",
-  "private": true,
   "version": "0.0.1",
+  "type": "module",
   "author": "Vick Scarlet<vick@syaro.io>",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "debug:client": "cargo run --manifest-path=./src-tauri/Cargo.toml --no-default-features"
   },
   "dependencies": {
     "@emotion/react": "^11.11.1",
@@ -19,6 +20,7 @@
     "@tauri-apps/api": "^1.5.1",
     "eventemitter3": "^5.0.1",
     "react": "^18.2.0",
+    "react-custom-scrollbars-2": "^4.5.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
     "styled-components": "^6.1.1"
@@ -29,6 +31,7 @@
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
     "@vitejs/plugin-react": "^4.0.3",
+    "eslint": "^8.55.0",
     "sass": "^1.69.5",
     "typescript": "^5.0.2",
     "vite": "^5.0.2"

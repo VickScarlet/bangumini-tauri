@@ -23,6 +23,8 @@ anyhow = "1.0.75"
 chrono = "0.4.31"
 scraper = "0.18.1"
 regex = "1.10.2"
+thiserror = "1.0.50"
+cookie_store = "0.20.0"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

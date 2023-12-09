@@ -1,4 +1,4 @@
-pub fn selecter(selecters: &str) -> scraper::Selector {
+pub fn selector(selecters: &str) -> scraper::Selector {
     scraper::Selector::parse(selecters).unwrap()
 }
 

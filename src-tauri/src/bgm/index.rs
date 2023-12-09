@@ -1,9 +1,33 @@
 use crate::{
     bangumi,
-    utils::{html, regex, selecter},
+    utils::{self, selector},
+    Result, S,
 };
-use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::{collections::HashMap, sync::Arc};
+
+pub struct Reg {
+    pub hash: regex::Regex,
+    pub number: regex::Regex,
+    pub subject: regex::Regex,
+    pub user: regex::Regex,
+    pub title_cn: regex::Regex,
+    pub on_air: regex::Regex,
+    pub duration: regex::Regex,
+}
+impl Reg {
+    fn new() -> Self {
+        Self {
+            hash: utils::regex(r".*/logout/([0-9a-zA-Z]*)"),
+            number: utils::regex(r"(\d+)"),
+            subject: utils::regex(r".*/subject/([^/?]+)"),
+            user: utils::regex(r".*/user/([^/?]+)"),
+            title_cn: utils::regex(r"中文标题:(.+)"),
+            on_air: utils::regex(r"首播:(.+)"),
+            duration: utils::regex(r"时长:(.+)"),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IndexResult {
@@ -16,6 +40,10 @@ impl IndexResult {
         let (login, id, data) = ResultEnum::split(dom);
         Self { login, id, data }
     }
+    pub async fn create(s: S<'_>) -> Result<Self> {
+        let res = s.client.get(bangumi!())?.text().await?;
+        Ok(Self::form(utils::html(&res)))
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -27,38 +55,52 @@ pub enum ResultEnum {
 
 impl ResultEnum {
     pub fn split(dom: scraper::Html) -> (bool, Option<String>, Self) {
+        let r = Arc::new(Reg::new());
         let avatar = dom
-            .select(&selecter("#headerNeue2 .idBadgerNeue .avatar"))
+            .select(&selector("#headerNeue2 .idBadgerNeue .avatar"))
             .next();
         if avatar.is_none() {
             (false, None, Self::Guest(GuestResult::from(dom)))
         } else {
             let id = avatar.unwrap().value().attr("href").unwrap();
-            let id = regex(r".*/user/([^/?]+)").captures(id).unwrap()[1].to_string();
-            (true, Some(id), Self::User(UserResult::from(dom)))
+            let id = r.user.captures(id).unwrap()[1].to_string();
+            (true, Some(id), Self::User(UserResult::from(dom, r)))
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UserResult {
-    pub tv_subjects: Vec<Subject>,
+    pub hash: String,
+    pub anime: Vec<Subject>,
 }
 
 impl UserResult {
-    pub fn from(dom: scraper::Html) -> Self {
-        let tv_subjects: Vec<Subject> = dom
-            .select(&selecter("#cloumnSubjectInfo .infoWrapper_tv > div"))
-            .map(Subject::from)
+    pub fn from(dom: scraper::Html, r: Arc<Reg>) -> Self {
+        let hash = dom.select(&selector("#dock")).next().unwrap().html();
+        let hash = r.hash.captures(&hash).unwrap()[1].to_string();
+        let prg = dom.select(&selector("#subject_prg_content")).next();
+        if prg.is_none() {
+            return Self {
+                hash,
+                anime: Vec::new(),
+            };
+        }
+        let prg = prg.unwrap();
+        let prg = EpInfo::split(prg, r.clone());
+        let prg = Arc::new(prg);
+        let anime: Vec<Subject> = dom
+            .select(&selector("#cloumnSubjectInfo .infoWrapper_tv > div"))
+            .map(|e| Subject::from(e, prg.clone(), r.clone()))
             .collect();
-        Self { tv_subjects }
+        Self { hash, anime }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GuestResult {}
 impl GuestResult {
-    pub fn from(dom: scraper::Html) -> Self {
+    pub fn from(_dom: scraper::Html) -> Self {
         Self {}
     }
 }
@@ -74,9 +116,13 @@ pub struct Subject {
 }
 
 impl Subject {
-    pub fn from<'a>(e: scraper::ElementRef<'a>) -> Self {
+    pub fn from<'a>(
+        e: scraper::ElementRef<'a>,
+        prg: Arc<HashMap<String, EpInfo>>,
+        r: Arc<Reg>,
+    ) -> Self {
         let img = e
-            .select(&selecter("div.header.clearit a .image img"))
+            .select(&selector("div.header.clearit a .image img"))
             .next()
             .unwrap()
             .value()
@@ -84,29 +130,25 @@ impl Subject {
             .unwrap()
             .to_string();
         let title = e
-            .select(&selecter("div.header.clearit .headerInner h3 a.textTip"))
+            .select(&selector("div.header.clearit .headerInner h3 a.textTip"))
             .next()
             .unwrap()
             .value();
         let name_cn = title.attr("data-subject-name-cn").unwrap().to_string();
         let name = title.attr("data-subject-name").unwrap().to_string();
         let id = title.attr("href").unwrap();
-        let id = regex(r".*/subject/([^/?]+)").captures(id).unwrap()[1].to_string();
+        let id = r.subject.captures(id).unwrap()[1].to_string();
         let hot = e
-            .select(&selecter("div.header.clearit .headerInner p.tip small"))
+            .select(&selector("div.header.clearit .headerInner p.tip small"))
             .next()
             .unwrap()
             .text()
-            .collect::<Vec<_>>()
-            .join("");
-
-        let hot = regex(r"(\d+)").captures(&hot).unwrap()[1]
-            .parse::<i32>()
+            .next()
             .unwrap();
 
-        let eps = e.select(&selecter(".epGird ul.prg_list")).next().unwrap();
-        let eps = EpTypedList::from(eps);
-
+        let hot = r.number.captures(&hot).unwrap()[1].parse::<i32>().unwrap();
+        let eps = e.select(&selector(".epGird ul.prg_list")).next().unwrap();
+        let eps = EpTypedList::from(eps, prg);
         Self {
             id,
             img,
@@ -134,21 +176,20 @@ impl EpTypedList {
         }
     }
 
-    pub fn from<'a>(e: scraper::ElementRef<'a>) -> Vec<Self> {
+    pub fn from<'a>(e: scraper::ElementRef<'a>, prg: Arc<HashMap<String, EpInfo>>) -> Vec<Self> {
         let mut typed = None;
         let mut eps = Vec::new();
         let mut typed_list = Vec::new();
-        e.select(&selecter("li")).for_each(|e| {
+        e.select(&selector("li")).for_each(|e| {
             if e.value()
                 .has_class("subtitle", scraper::CaseSensitivity::CaseSensitive)
             {
                 typed_list.push(Self::new(typed.clone(), eps.clone()));
                 eps = Vec::new();
-                typed = Some(e.text().collect::<Vec<_>>().join(""));
+                typed = Some(e.text().next().unwrap().to_string());
                 return;
             }
-            let ep = Ep::from(e);
-            eps.push(ep);
+            eps.push(Ep::from(e, prg.clone()));
         });
         typed_list.push(Self::new(typed, eps));
         typed_list
@@ -156,32 +197,141 @@ impl EpTypedList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum EpState {
+    Watched,
+    Queue,
+    Drop,
+}
+impl EpState {
+    pub fn from(s: Option<String>) -> Option<Self> {
+        match s {
+            Some(s) => match s.as_str() {
+                "看过" => Some(Self::Watched),
+                "抛弃" => Some(Self::Drop),
+                "想看" => Some(Self::Queue),
+                _ => None,
+            },
+            None => None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Ep {
+    pub ep: String,
     pub id: String,
-    pub state: String,
+    pub comment: i32,
+    pub state: Option<EpState>,
+    pub title: Option<String>,
+    pub title_cn: Option<String>,
+    pub on_air: Option<String>,
+    pub duration: Option<String>,
 }
 
 impl Ep {
-    pub fn from<'a>(e: scraper::ElementRef<'a>) -> Self {
-        let e = e.select(&selecter("a.load-epinfo")).next().unwrap();
-        let id = e.attr("subject_id").unwrap().to_string();
-        let state = e.attr("class").unwrap();
-        let state = regex(r".*epBtn([a-zA-Z]+)").captures(state).unwrap()[1].to_string();
-        Self { id, state }
+    pub fn new(id: String, ep: String, title: Option<String>, info: Option<&EpInfo>) -> Self {
+        if let Some(info) = info {
+            Self {
+                ep,
+                id,
+                title,
+                comment: info.comment,
+                state: info.state.clone(),
+                title_cn: info.title_cn.clone(),
+                on_air: info.on_air.clone(),
+                duration: info.duration.clone(),
+            }
+        } else {
+            Self {
+                ep,
+                id,
+                title,
+                comment: 0,
+                state: None,
+                title_cn: None,
+                on_air: None,
+                duration: None,
+            }
+        }
+    }
+
+    pub fn from<'a>(e: scraper::ElementRef<'a>, prg: Arc<HashMap<String, EpInfo>>) -> Self {
+        let ep = e.select(&selector("a")).next().unwrap();
+        let id = ep.value().attr("rel").unwrap()[9..].to_string();
+        let title = ep.value().attr("title").map(|s| s.to_string());
+        let ep = ep.text().next().unwrap().to_string();
+        let info = prg.get(&id);
+        Self::new(id, ep, title, info)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct EpInfo {
+    pub id: String,
+    pub comment: i32,
+    pub state: Option<EpState>,
+    pub title_cn: Option<String>,
+    pub on_air: Option<String>,
+    pub duration: Option<String>,
+}
+
+impl EpInfo {
+    pub fn handle_prg<'a>(prg: scraper::ElementRef<'a>, r: Arc<Reg>) -> Self {
+        let id = prg.value().attr("id").unwrap()[8..].to_string();
+        let state = prg
+            .select(&selector(".epStatusTool .epBtnCu"))
+            .next()
+            .map(|e| e.text().next().unwrap().to_string());
+        let state = EpState::from(state);
+        if let Some(tip) = prg.select(&selector(".tip")).next() {
+            let comment = tip
+                .select(&selector("small.na"))
+                .next()
+                .unwrap()
+                .text()
+                .next()
+                .unwrap();
+            let comment = comment[1..comment.len() - 1].parse::<i32>().unwrap_or(0);
+            let tip = tip.text().collect::<Vec<_>>().join("\n");
+            let title_cn = r.title_cn.captures(&tip).map(|c| c[1].trim().to_string());
+            let on_air = r.on_air.captures(&tip).map(|c| c[1].trim().to_string());
+            let duration = r.duration.captures(&tip).map(|c| c[1].trim().to_string());
+            Self {
+                id,
+                comment,
+                state,
+                title_cn,
+                on_air,
+                duration,
+            }
+        } else {
+            Self {
+                id,
+                comment: 0,
+                state,
+                title_cn: None,
+                on_air: None,
+                duration: None,
+            }
+        }
+    }
+
+    pub fn split<'a>(e: scraper::ElementRef<'a>, r: Arc<Reg>) -> HashMap<String, Self> {
+        let mut map = HashMap::new();
+        e.select(&selector(".prg_popup")).for_each(|e| {
+            let ep = Self::handle_prg(e, r.clone());
+            map.insert(ep.id.clone(), ep);
+        });
+        map
     }
 }
 
 // export
 #[tauri::command]
-pub async fn index(s: crate::S<'_>) -> Result<IndexResult, String> {
-    let client = s.client.get_client()?;
-    let res = client
-        .get(bangumi!("/"))
-        .send()
-        .await
-        .map_err(|e| e.to_string())?
-        .text()
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(IndexResult::form(html(&res)))
+pub async fn index(s: crate::S<'_>) -> Result<IndexResult> {
+    let ret = IndexResult::create(s.clone()).await?;
+    if let ResultEnum::User(data) = &ret.data {
+        s.client.set_gh(data.hash.clone())
+    }
+    Ok(ret)
 }
